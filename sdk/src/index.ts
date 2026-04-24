@@ -1,3 +1,4 @@
+export * from './backends';
 export * from './encoding';
 export * from './note';
 export * from './proof';
