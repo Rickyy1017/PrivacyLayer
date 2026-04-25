@@ -4,7 +4,8 @@ import { normalizeHex, stableHash32 } from './stable';
 export interface MerkleProof {
   root: Buffer;
   pathElements: Buffer[];
-  pathIndices: number[];
+  /** If provided and non-empty, must match the Merkle path length (e.g. 20). */
+  pathIndices?: number[];
   leafIndex: number;
 }
 
@@ -104,6 +105,7 @@ export interface PreparedWitness {
   leaf_index: string;
   hash_path: string[];
   // Public inputs
+  pool_id: string;
   root: string;
   nullifier_hash: string;
   recipient: string;
@@ -137,11 +139,22 @@ export class ProofGenerator {
    */
   async generate(witness: any): Promise<Uint8Array> {
     if (!this.backend) {
-      throw new Error(
-        'Proving backend not configured. Please provide a backend to the ProofGenerator.'
+      throw new ProvingError(
+        'Proving backend not configured. Please provide a backend to the ProofGenerator.',
+        'BACKEND_ERROR'
       );
     }
-    return this.backend.generateProof(witness);
+    try {
+      assertValidPreparedWithdrawalWitness(witness);
+    } catch (e: any) {
+      throw new ProvingError(`Invalid witness: ${e.message}`, 'WITNESS_ERROR', e);
+    }
+
+    try {
+      return await this.backend.generateProof(witness);
+    } catch (e: any) {
+      throw new ProvingError(`Backend proof generation failed: ${e.message}`, 'BACKEND_ERROR', e);
+    }
   }
 
   /**
@@ -180,6 +193,14 @@ export class ProofGenerator {
       path_elements: merkleProof.pathElements.map((e) => e.toString('hex')),
       path_indices: merkleProof.pathIndices.map((i) => i.toString())
     };
+
+    try {
+      assertValidPreparedWithdrawalWitness(witness);
+    } catch (e: any) {
+      throw new ProvingError(`Inconsistent witness generated: ${e.message}`, 'WITNESS_ERROR', e);
+    }
+
+    return witness;
   }
 
   /**
@@ -188,6 +209,11 @@ export class ProofGenerator {
    */
   static formatProof(rawProof: Uint8Array): Buffer {
     // Soroban contract expects Proof struct: { a: BytesN<64>, b: BytesN<128>, c: BytesN<64> }
+    try {
+      assertValidGroth16ProofBytes(rawProof, 'rawProof');
+    } catch (e: any) {
+      throw new ProvingError(`Invalid proof format from backend: ${e.message}`, 'FORMATTING_ERROR', e);
+    }
     return Buffer.from(rawProof);
   }
 }
